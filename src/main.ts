@@ -74,13 +74,14 @@ Hooks.on("closeDamageModifierDialog", async (app: any) => {
         delete (app.actor as any)._lastDamageOriginId;
     }
 
-    // 2. Safety cleanup is a write operation, enqueue it
+    // 2. Find the combatant
     const tokenId = app.token?.id;
     const actorId = app.actor?.id;
     const combatant = findCombatantByTokenOrActor(game.combat, tokenId, actorId);
     const c = combatant as any;
     if (!c?.id || !combatant) return;
 
+    // 3. Safety cleanup is a write operation, enqueue it
     enqueueAction(c.id, async () => await ChatManager.handleDamageModifierDialogRender(combatant, app));
 });
 
