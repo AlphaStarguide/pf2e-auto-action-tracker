@@ -1,6 +1,6 @@
 import { SCOPE } from "./globals.ts";
 import { SettingsManager } from "./SettingsManager.ts";
-import { logError, notifyWarn, logInfo } from "./logger.ts";
+import { logError, notifyWarn } from "./logger.ts";
 
 declare const socketlib: any;
 
@@ -51,12 +51,12 @@ export class SocketsManager {
 
         const actor = (game.actors as any).get(data.actorId);
         if (actor) {
-            const { ChatManager } = await import("./ChatManager.ts");
+            const { ChatCardRenderer } = await import("./ChatCardRenderer.ts");
             if (data.choice === "yes") {
-                await ChatManager.processSustainYes(actor, data.itemId, data.itemName, data.combatantId);
+                await ChatCardRenderer.processSustainYes(actor, data.itemId, data.itemName, data.combatantId);
             } else {
                 const combatant = game.combat?.combatants.get(data.combatantId);
-                await ChatManager.processSustainNo(actor, data.itemId, combatant);
+                await ChatCardRenderer.processSustainNo(actor, data.itemId, combatant);
             }
         }
     }
@@ -84,7 +84,7 @@ export class SocketsManager {
         if (!combatant) return;
 
         const { ActionManager } = await import("./ActionManager.ts");
-        await ActionManager.removeAction(combatant as any, data.msgId);
+        await ActionManager.removeAction(combatant as any, data.msgId, data.isRecursive);
     }
 
     /**
@@ -136,7 +136,6 @@ export class SocketsManager {
      * Handler for history reset sent from another client
      */
     private static async _handleResetHistoryRequest(data: any) {
-        logInfo(`[Socket] Received History Reset | Token: ${data.tokenId || "ALL"} | Current User: ${game.user?.name}`);
         const { MovementManager } = await import("./MovementManager.ts");
         MovementManager.resetCapturedHistory(data.tokenId);
     }

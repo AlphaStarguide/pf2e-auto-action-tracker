@@ -3,7 +3,7 @@ import type { CombatantPF2e } from "module-helpers";
 import { ActionManager } from "./ActionManager.ts";
 import { ComplexActionEngine } from "./complexActions/ComplexActionEngine.ts";
 import type { ActionLogEntry } from "./ActionLogTypes.ts";
-import { logConsole } from "./logger.ts";
+import { logInfo } from "./logger.ts";
 
 export class DamageCombinator {
     public static async processDamageCombination(combatant: CombatantPF2e, parentEntry: ActionLogEntry, triggeringMsgId?: string, isCritImmuneOverride?: boolean) {
@@ -16,10 +16,8 @@ export class DamageCombinator {
             return;
         }
 
-        logConsole(`DamageCombinator | Attempting to combine damage rolls:`, damageMessagePairs);
-
         const { chatMessages, targetUuid } = this.extractMessagesAndTarget(damageMessagePairs);
-        if (chatMessages.length !== damageMessagePairs.length || !targetUuid) {
+        if (chatMessages.length !== damageMessagePairs.length) {
             return;
         }
 
@@ -65,7 +63,14 @@ export class DamageCombinator {
         const chatMessages = damageMessagePairs.map(p => (game as any).messages.get(p.damageMsgId)).filter(m => m !== undefined);
         const attackMessages = damageMessagePairs.map(p => (game as any).messages.get(p.attackMsgId)).filter(m => m !== undefined);
 
-        const targets = attackMessages.map(m => m.flags?.pf2e?.context?.target?.token || m.flags?.pf2e?.target?.value).filter(t => t !== undefined && t !== null);
+        const allRelatedMessages = [...attackMessages, ...chatMessages];
+
+        const targets = allRelatedMessages.map(m => {
+            const contextTarget = m.flags?.pf2e?.context?.target?.token || m.flags?.pf2e?.context?.target?.actor;
+            const targetValue = m.flags?.pf2e?.target?.value || m.flags?.pf2e?.target?.token || m.flags?.pf2e?.target?.actor;
+            return contextTarget || targetValue;
+        }).filter(t => t !== undefined && t !== null);
+
         let targetUuid: string | undefined = undefined;
 
         if (targets.length > 0) {
@@ -73,8 +78,7 @@ export class DamageCombinator {
             const allSameTarget = targets.every(t => t === firstTarget);
 
             if (!allSameTarget) {
-                logConsole(`DamageCombinator | Targets do not match. Aborting combination.`);
-                return { chatMessages, targetUuid: undefined };
+                return { chatMessages: [], targetUuid: undefined };
             }
             targetUuid = firstTarget;
         }
@@ -82,21 +86,21 @@ export class DamageCombinator {
         return { chatMessages, targetUuid };
     }
 
-    private static async detectCritImmunity(targetUuid: string, isCritImmuneOverride?: boolean): Promise<{ isCritImmune: boolean, targetName: string }> {
+    private static async detectCritImmunity(targetUuid: string | undefined, isCritImmuneOverride?: boolean): Promise<{ isCritImmune: boolean, targetName: string }> {
         let isCritImmune = false;
         let targetName = "Unknown Target";
 
         if (typeof isCritImmuneOverride === 'boolean') {
             isCritImmune = isCritImmuneOverride;
-            logConsole(`DamageCombinator | Overriding crit immunity state to: ${isCritImmune}`);
-        } else if (targetUuid) {
+        }
+
+        if (targetUuid) {
             const targetDoc = await (globalThis as any).fromUuid(targetUuid);
             if (targetDoc) {
                 if (targetDoc.name) targetName = targetDoc.name;
                 const actor = targetDoc.actor || targetDoc;
                 if (actor?.system?.attributes?.immunities?.some((i: any) => i.type === 'critical-hits')) {
                     isCritImmune = true;
-                    logConsole(`DamageCombinator | Target ${targetName} is IMMUNE to critical hits! Parsing unmultiplied damage.`);
                 }
             }
         }
@@ -191,19 +195,16 @@ export class DamageCombinator {
         formulaParts.push(...persistentFormulas);
 
         if (formulaParts.length === 0) {
-            logConsole(`DamageCombinator | No rolls or instances extracted from messages.`);
             return null;
         }
 
         const formula = `{${formulaParts.join(", ")}}`;
-        logConsole(`DamageCombinator | Constructed PF2e InstancePool formula: ${formula}`);
         return formula;
     }
 
     private static async evaluateDamageRoll(formula: string): Promise<any[] | null> {
         const DamageRoll = (globalThis as any).CONFIG.Dice.rolls.find((r: any) => r.name === 'DamageRoll');
         if (!DamageRoll) {
-            logConsole(`DamageCombinator | Could not locate DamageRoll in CONFIG.Dice.rolls`);
             return null;
         }
 
@@ -213,7 +214,6 @@ export class DamageCombinator {
 
     private static async waitFor3DDice(triggeringMsgId?: string) {
         if ((game as any).dice3d?.waitFor3DAnimationByMessageID && triggeringMsgId) {
-            logConsole(`DamageCombinator | Waiting for 3D dice animation for triggering message ${triggeringMsgId}...`);
             try {
                 const timeout = new Promise(resolve => setTimeout(resolve, 6000));
                 await Promise.race([
@@ -221,7 +221,7 @@ export class DamageCombinator {
                     timeout
                 ]);
             } catch (e) {
-                logConsole(`DamageCombinator | Error waiting for 3D dice:`, e);
+                logInfo(`DamageCombinator | Error waiting for 3D dice:`, e);
             }
         }
     }
@@ -315,7 +315,6 @@ export class DamageCombinator {
         const actor = (combatant as any).actor;
 
         if (state.combinedDamageMessageId) {
-            logConsole(`DamageCombinator | Updating existing combined message ID: ${state.combinedDamageMessageId}`);
             const existingMsg = (game as any).messages.get(state.combinedDamageMessageId);
             if (existingMsg) {
                 await existingMsg.update({
@@ -327,8 +326,6 @@ export class DamageCombinator {
                 return;
             }
         }
-
-        logConsole(`DamageCombinator | Creating new combined damage message`);
 
         const newMsg = await (globalThis as any).ChatMessage.create({
             speaker: (globalThis as any).ChatMessage.getSpeaker({ actor }),
